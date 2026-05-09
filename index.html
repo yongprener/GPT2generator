@@ -557,7 +557,7 @@ async function doInf(k,quality,size,n){
   fd.append('size',size);
   fd.append('quality',quality);
   fd.append('n',n);
-  fd.append('response_format','b64_json');
+  // response_format tidak didukung di edits endpoint untuk GPT image models
   fd.append('image[]',b64Blob(files.inf.b64,files.inf.mime),'source.png');
   const r=await fetch('https://api.openai.com/v1/images/edits',{
     method:'POST',
@@ -581,7 +581,7 @@ async function doEdit(k,quality,size,n){
   fd.append('size',size);
   fd.append('quality',quality);
   fd.append('n',n);
-  fd.append('response_format','b64_json');
+  // response_format tidak didukung di edits endpoint untuk GPT image models
   fd.append('image[]',b64Blob(files.edit.b64,files.edit.mime),'source.png');
   const r=await fetch('https://api.openai.com/v1/images/edits',{
     method:'POST',
@@ -602,22 +602,30 @@ function showResults(arr,prompt,n){
   document.getElementById('upres').innerHTML='';
 
   arr.forEach((img,i)=>{
-    const b64=img.b64_json,src='data:image/png;base64,'+b64;
-    hist.unshift({src,prompt:prompt.slice(0,80),t:Date.now()});
+    // generate endpoint → b64_json; edits endpoint → b64_json (GPT image models always return b64)
+    const b64=img.b64_json||null;
+    const src=b64?'data:image/png;base64,'+b64:(img.url||'');
+    if(!src){console.warn('No image src in result',img);return;}
+
+    hist.unshift({src:src.length<500000?src:'[large]',prompt:prompt.slice(0,80),t:Date.now()});
     if(hist.length>12)hist.pop();
     try{localStorage.setItem('ais_v4',JSON.stringify(hist))}catch(e){}
+
     if(i===0){acB64=b64;acSrc=src;document.getElementById('aclbl').textContent='Gambar #1'}
-    const enc=encodeURIComponent(b64);
+
+    // store ref by index for setAc
+    window['_imgData_'+i]={b64,src};
+
     const div=document.createElement('div');
     div.style.marginBottom=n>1?'16px':'0';
     div.innerHTML=`
       <div class="rimg-w">
-        <img src="${src}" title="Klik untuk pilih upscale" onclick="setAc(${i},'${enc}')">
+        <img src="${src}" title="Klik untuk pilih upscale" onclick="setAc(${i})">
       </div>
       <div class="iacts" style="margin-top:8px">
         <a class="btn-sec" href="${src}" download="aistudio-${Date.now()}-${i}.png">⬇️ Download</a>
-        <button class="btn-sec" onclick="setAc(${i},'${enc}')" type="button">🔍 Pilih Upscale</button>
-        <button class="btn-sec" onclick="openFull('${encodeURIComponent(src)}')" type="button">🔎 Full</button>
+        <button class="btn-sec" onclick="setAc(${i})" type="button">🔍 Pilih Upscale</button>
+        <button class="btn-sec" onclick="openFull(${i})" type="button">🔎 Full</button>
       </div>`;
     box.appendChild(div);
   });
@@ -628,15 +636,17 @@ function showResults(arr,prompt,n){
   renderHist();
 }
 
-function setAc(i,enc){
-  acB64=decodeURIComponent(enc);
-  acSrc='data:image/png;base64,'+acB64;
+function setAc(i){
+  const d=window['_imgData_'+i];
+  if(!d)return;
+  acB64=d.b64;acSrc=d.src;
   document.getElementById('aclbl').textContent='Gambar #'+(i+1);
   document.getElementById('upres').innerHTML='';
 }
 
-function openFull(enc){
-  const src=decodeURIComponent(enc);
+function openFull(i){
+  const d=typeof i==='number'?window['_imgData_'+i]:null;
+  const src=d?d.src:decodeURIComponent(i);
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${src}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
 }
@@ -739,9 +749,15 @@ function initSlider(){
 function renderHist(){
   if(!hist.length)return;
   document.getElementById('hist-sec').style.display='block';
-  document.getElementById('hgrid').innerHTML=hist.map(h=>
-    `<div class="hi" title="${h.prompt}" onclick="openFull('${encodeURIComponent(h.src)}')"><img src="${h.src}" loading="lazy"></div>`
+  document.getElementById('hgrid').innerHTML=hist.map((h,i)=>
+    `<div class="hi" title="${h.prompt}" onclick="openHistFull('${encodeURIComponent(h.src)}')"><img src="${h.src==='[large]'?'':h.src}" loading="lazy" style="background:var(--s2)"></div>`
   ).join('');
+}
+
+function openHistFull(enc){
+  const src=decodeURIComponent(enc);
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${src}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
 }
 
 function clearHist(){
