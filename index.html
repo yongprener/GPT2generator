@@ -217,9 +217,9 @@ canvas{display:none}
     <div class="ctitle"><div class="ctitle-l">Mode</div></div>
 
     <div class="tabs">
-      <button class="tab on" onclick="switchMode('gen')" id="tab-gen" type="button"><span class="ti">✨</span>Generate</button>
-      <button class="tab" onclick="switchMode('inf')" id="tab-inf" type="button"><span class="ti">🎭</span>AI Influencer</button>
-      <button class="tab" onclick="switchMode('edit')" id="tab-edit" type="button"><span class="ti">✏️</span>Edit Image</button>
+      <button class="tab on" onclick="switchMode('gen')" id="tab-gen" type="button"><span class="ti">✨</span>Generate<span style="font-size:9px;opacity:.6;display:block">gpt-image-2</span></button>
+      <button class="tab" onclick="switchMode('inf')" id="tab-inf" type="button"><span class="ti">🎭</span>AI Influencer<span style="font-size:9px;opacity:.6;display:block">gpt-image-1</span></button>
+      <button class="tab" onclick="switchMode('edit')" id="tab-edit" type="button"><span class="ti">✏️</span>Edit Image<span style="font-size:9px;opacity:.6;display:block">gpt-image-1</span></button>
     </div>
 
     <!-- GENERATE -->
@@ -239,7 +239,7 @@ canvas{display:none}
     <!-- AI INFLUENCER -->
     <div class="panel" id="panel-inf">
       <div class="infobox">
-        <strong>🎭 AI Influencer Mode</strong><br>
+        <strong>🎭 AI Influencer Mode</strong> <span style="font-size:10px;opacity:.7">(via gpt-image-1)</span><br>
         Upload foto wajah / full body sebagai referensi. AI akan menempatkan model ke berbagai skenario konten kreator profesional.
       </div>
 
@@ -289,7 +289,7 @@ canvas{display:none}
     <!-- EDIT IMAGE -->
     <div class="panel" id="panel-edit">
       <div class="infobox">
-        <strong>✏️ Edit Image Mode</strong><br>
+        <strong>✏️ Edit Image Mode</strong> <span style="font-size:10px;opacity:.7">(via gpt-image-1)</span><br>
         Upload gambar lalu instruksikan AI: ganti background, hapus objek, ubah gaya, tambah elemen, ubah outfit, dll.
       </div>
 
@@ -551,14 +551,18 @@ async function doInf(k,quality,size,n){
   const custom=document.getElementById('prompt-inf').value.trim();
   const prompt=preset+(custom?'. '+custom:'');
   setSt('<span class="spin"></span>AI transformasi foto... (30-60 detik)','load');
+  // /images/edits hanya support gpt-image-1, bukan gpt-image-2
+  // size juga harus salah satu dari: 1024x1024, 1536x1024, 1024x1536
+  const editSize=['1024x1024','1536x1024','1024x1536'].includes(size)?size:'1024x1024';
   const fd=new FormData();
-  fd.append('model','gpt-image-2');
+  fd.append('model','gpt-image-1');
   fd.append('prompt',prompt);
-  fd.append('size',size);
+  fd.append('size',editSize);
   fd.append('quality',quality);
-  fd.append('n',n);
-  // response_format tidak didukung di edits endpoint untuk GPT image models
-  fd.append('image[]',b64Blob(files.inf.b64,files.inf.mime),'source.png');
+  fd.append('n',String(n));
+  // field name harus 'image' (bukan 'image[]'), file harus PNG
+  const imgBlob=await toPngBlob(files.inf.b64,files.inf.mime);
+  fd.append('image',imgBlob,'source.png');
   const r=await fetch('https://api.openai.com/v1/images/edits',{
     method:'POST',
     headers:{'Authorization':'Bearer '+k},
@@ -575,14 +579,15 @@ async function doEdit(k,quality,size,n){
   const prompt=document.getElementById('prompt-edit').value.trim();
   if(!prompt){setSt('❌ Tulis instruksi edit!','err');return}
   setSt('<span class="spin"></span>Mengedit gambar...','load');
+  const editSize=['1024x1024','1536x1024','1024x1536'].includes(size)?size:'1024x1024';
   const fd=new FormData();
-  fd.append('model','gpt-image-2');
+  fd.append('model','gpt-image-1');
   fd.append('prompt',prompt);
-  fd.append('size',size);
+  fd.append('size',editSize);
   fd.append('quality',quality);
-  fd.append('n',n);
-  // response_format tidak didukung di edits endpoint untuk GPT image models
-  fd.append('image[]',b64Blob(files.edit.b64,files.edit.mime),'source.png');
+  fd.append('n',String(n));
+  const imgBlob=await toPngBlob(files.edit.b64,files.edit.mime);
+  fd.append('image',imgBlob,'source.png');
   const r=await fetch('https://api.openai.com/v1/images/edits',{
     method:'POST',
     headers:{'Authorization':'Bearer '+k},
@@ -592,6 +597,28 @@ async function doEdit(k,quality,size,n){
   if(d.error){setSt('❌ '+d.error.message,'err');return}
   showResults(d.data,prompt,n);
   setSt('✅ Edit selesai!','ok');
+}
+
+// Convert any image to PNG blob via canvas (edits endpoint requires PNG)
+function toPngBlob(b64,mime){
+  return new Promise((res,rej)=>{
+    // if already png, just return blob directly
+    if(mime==='image/png'){
+      res(b64Blob(b64,mime));return;
+    }
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement('canvas');
+      c.width=img.width;c.height=img.height;
+      c.getContext('2d').drawImage(img,0,0);
+      c.toBlob(blob=>{
+        if(blob)res(blob);
+        else rej(new Error('Gagal konversi ke PNG'));
+      },'image/png');
+    };
+    img.onerror=()=>rej(new Error('Gagal load gambar'));
+    img.src='data:'+mime+';base64,'+b64;
+  });
 }
 
 // ── Show Results ───────────────────────────────────────
